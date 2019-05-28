@@ -3,13 +3,11 @@ import numpy as np
 import cv2
 
 #|---------------------------------------------------|#
-def seguimiento(frame,img,cl):
-    img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+def seguimiento(frame,img,track_window):
+    know_img = img.shape
+    if len(know_img) == 2:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
     hsv_roi =  cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    
-    w,h = cl[1]-cl[0], cl[3] - cl[2]
-    x,y = int((cl[0]+w)/2), int((cl[2]+h)/2)
-    track_window = track_window = ( x, y, w, h)
     #|---------------|#
     mask = cv2.inRange(hsv_roi, np.array((0., 60.,32.)), np.array((180.,255.,255.)))
     roi_hist = cv2.calcHist([hsv_roi],[0],mask,[180],[0,180])
@@ -22,10 +20,9 @@ def seguimiento(frame,img,cl):
     # apply meanshift to get the new location
     ret, track_window = cv2.meanShift(dst, track_window, term_crit)
     # Draw it on image
-    print(track_window)
     x,y,w,h = track_window
     img2 = cv2.rectangle(frame, (x,y), (x+w,y+h), 255,2)
-    return img2
+    return img2,track_window
 
 def conversion_matriz():
     #|---- local var ----|#
@@ -372,6 +369,8 @@ trainData, responses = conversion_matriz()
 knn = entrenar_knn(trainData, responses)
 images_, kpoints_, descriptors_ = cargar_carac("Caracteristicas/img",orb)
 frame_ant = []
+track_img, control =[],0
+track_window = []
 #|---------------------------------------------------|#
 while cap.isOpened():
     ret, frame = cap.read()
@@ -381,17 +380,25 @@ while cap.isOpened():
         break
     img1 = pro_img(frame)
     img3, pts, desc = f_match(img1, images_,kpoints_, descriptors_, orb)
-    img4, cl = n_blobs(pts, desc, ms, img1,knn)
-    
-    if len(cl) == 0:
-        img4 = frame_ant[0]
-        cl = frame_ant[1]
+    if control == 0:
+        img4, cl = n_blobs(pts, desc, ms, img1,knn)
+
+        if len(cl) == 0:
+            img4 = frame_ant[0]
+            cl = frame_ant[1]
+        else:
+            frame_ant = [img4,cl]
+            w,h = cl[1]-cl[0], cl[3] - cl[2]
+            x,y = int((cl[0]+w)/2), int((cl[2]+h)/2)
+            track_window = (x,y,w,h)
+            
+        control = 1
     else:
-        frame_ant = [img4,cl]
+        img4 = track_img
         
-    img5 = seguimiento(frame,img4,cl)
+    track_img, track_window = seguimiento(frame,img4,track_window)
     
-    cv2.imshow("img final",img5)
+    cv2.imshow("img final",track_img)
     cv2.waitKey(100)
 print("|--- Fin ---|")
 #|KD-Tree|#
