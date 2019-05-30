@@ -3,27 +3,6 @@ import numpy as np
 import cv2
 
 #|---------------------------------------------------|#
-def seguimiento(frame,img,track_window):
-    know_img = img.shape
-    if len(know_img) == 2:
-        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-    hsv_roi =  cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    #|---------------|#
-    mask = cv2.inRange(hsv_roi, np.array((0., 60.,32.)), np.array((180.,255.,255.)))
-    roi_hist = cv2.calcHist([hsv_roi],[0],mask,[180],[0,180])
-    cv2.normalize(roi_hist,roi_hist,0,255,cv2.NORM_MINMAX)
-    # Setup the termination criteria, either 10 iteration or move by atleast 1 pt
-    term_crit = ( cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1 )
-    #|-------------------|#
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    dst = cv2.calcBackProject([hsv],[0],roi_hist,[0,180],1)
-    # apply meanshift to get the new location
-    ret, track_window = cv2.meanShift(dst, track_window, term_crit)
-    # Draw it on image
-    x,y,w,h = track_window
-    img2 = cv2.rectangle(frame, (x,y), (x+w,y+h), 255,2)
-    return img2,track_window
-
 def conversion_matriz():
     #|---- local var ----|#
     file = r_archivo("Botella.txt")
@@ -272,7 +251,7 @@ def pro_img(img):
     img2 = cv2.filter2D(img, 0, kernel2)
     img = cv2.addWeighted(img, 0.7, img2, 0.3, 0)
     #|----------------------------------------------------|#
-    print("|--- pro_img ---|")
+    #print("|--- pro_img ---|")
     return img
 
 def re_size(img,proporcion):
@@ -281,7 +260,7 @@ def re_size(img,proporcion):
     alto = int(alto*proporcion)
     ancho = int(ancho*proporcion)
     #|---------------------------------|#
-    print("|--- re_size ---|")
+    #print("|--- re_size ---|")
     return cv2.resize(img,(ancho,alto))
 
 def n_blobs(points, desc, ms, img, knn):
@@ -359,8 +338,42 @@ def roi_section(n_cluster, points, desc, labels):
 
 def indices( lista, value):
     return [i for i,x in enumerate(lista) if x==value]
+
+def seguimiento(frame, roi_hist, track_window, term_crit ):
+    #|--- Convert format color to HSV ---|#
+    know_img = frame.shape
+    if len(know_img) == 2:
+        frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    #|--- Calculate backprojection ---|#
+    dst = cv2.calcBackProject([hsv],[0],roi_hist,[0,180],1)
+    #|--- Calculate a new location ---|#
+    ret, track_window = cv2.meanShift(dst, track_window, term_crit)
+    #|--- Draw a new region ---|#
+    x, y, w, h = track_window
+    frame2 = cv2.rectangle(frame, (x,y), (x+w,y+h), 255,2)
+    return frame2, track_window
+
+def preparar_track(roi, cl):
+    #|--- Make a point window ---|#
+    x, y, w, h = cl[0], cl[2], (cl[1] - cl[0]), (cl[3] - cl[2])
+    track_window = (x, y, w, h)
+    #|--- Conver format color in HSV ---|#
+    know_img = roi.shape
+    if len(know_img) == 2:
+        roi = cv2.cvtColor(roi, cv2.COLOR_GRAY2BGR)
+    hsv_roi =  cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    #|--- Make a mask ---|#
+    mask = cv2.inRange(hsv_roi, np.array((0., 60.,32.)), np.array((180.,255.,255.)))
+    roi_hist = cv2.calcHist([hsv_roi], [0], mask, [2], [60,255])
+    print(roi_hist)
+    cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
+    #|--- Establecer condiciones de paro|#
+    term_crit = ( cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1 )
+    
+    return track_window, roi_hist, term_crit
+
 #|---------------------------------------------------|#
-#img2 = cv2.imread('img0.jpg') # trainImage
 cap = cv2.VideoCapture("Videos/Oorion1.avi")
 orb = cv2.ORB_create()
 ms = MeanShift()
@@ -368,9 +381,9 @@ ms = MeanShift()
 trainData, responses = conversion_matriz()
 knn = entrenar_knn(trainData, responses)
 images_, kpoints_, descriptors_ = cargar_carac("Caracteristicas/img",orb)
-frame_ant = []
-track_img, control =[],0
-track_window = []
+#|---------------------------------------------------|#
+track_window, roi_hist, term_crit = (),0,0
+control = True
 #|---------------------------------------------------|#
 while cap.isOpened():
     ret, frame = cap.read()
@@ -380,23 +393,13 @@ while cap.isOpened():
         break
     img1 = pro_img(frame)
     img3, pts, desc = f_match(img1, images_,kpoints_, descriptors_, orb)
-    if control == 0:
+    if control == True:
+        #|---- ROI and points ----|#
         img4, cl = n_blobs(pts, desc, ms, img1,knn)
-
-        if len(cl) == 0:
-            img4 = frame_ant[0]
-            cl = frame_ant[1]
-        else:
-            frame_ant = [img4,cl]
-            w,h = cl[1]-cl[0], cl[3] - cl[2]
-            x,y = int((cl[0]+w)/2), int((cl[2]+h)/2)
-            track_window = (x,y,w,h)
-            
-        control = 1
-    else:
-        img4 = track_img
+        track_window, roi_hist, term_crit = preparar_track(frame,cl)
+        control = False
         
-    track_img, track_window = seguimiento(frame,img4,track_window)
+    track_img, track_window = seguimiento(frame, roi_hist, track_window, term_crit)
     
     cv2.imshow("img final",track_img)
     cv2.waitKey(100)
