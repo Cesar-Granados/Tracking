@@ -1,0 +1,1 @@
+Orientado al reconocimiento de objetos en una region con dificultades para su seguimiento.
