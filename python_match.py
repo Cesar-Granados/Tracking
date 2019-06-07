@@ -344,7 +344,7 @@ def seguimiento(frame, roi_hist, track_window, term_crit ):
         frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     #|--- Calculate backprojection ---|#
-    dst = cv2.calcBackProject([hsv],[0,1],roi_hist,[160,170,50,150],1)
+    dst = cv2.calcBackProject([hsv],[0,1],roi_hist,[160,170,0,256],1)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5))
     dst = cv2.filter2D(dst, -1, kernel)
     #_, dst = cv2.threshold(dst, 30, 255, cv2.THRESH_BINARY)
@@ -369,6 +369,7 @@ def preparar_track(roi, cl):
     if len(know_img) == 2:
         roi = cv2.cvtColor(roi, cv2.COLOR_GRAY2BGR)
     hsv_roi =  cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    hsv_roi = roi[y:y+h,x:x+w]
     #|--- Make a mask ---|#
     mask = cv2.inRange(hsv_roi, np.array((0., 60.,32.)), np.array((180.,255.,255.)))
     roi_hist = cv2.calcHist([hsv_roi], [0, 1], mask, [180,256], [0,180,0,256])
