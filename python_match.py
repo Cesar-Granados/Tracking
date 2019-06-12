@@ -65,6 +65,7 @@ def r_archivo(path):
                             numberArray.append(numberInt);
                             number=""
                 arrayCLuster.append(numberArray)
+            #if("|--- image end ---|" in line):
             if("fin-cluster" in line):
                 arrayCLuster.append(numberArray)
                 arrayMaster.append(arrayCLuster)
@@ -75,20 +76,15 @@ def seleccionar_object(objeto,img):
     if len(objeto) == 0:
         print("No existen objetos.")
         print("|---- saliendo seleccionar_object ----|")
-        return img, objeto
-    if len(objeto) == 1:
-        print("Una imagen.")
-        print("|---- saliendo seleccionar_object ----|")
-        img2 = roi(objeto[0],img.copy())
-        return img2, objeto[0]
+        return img, None
     #|---- local var ----|#
     botella = cv2.imread("Imagenes-Objeto/Botella/img6.png")
-    hist_botella = []
-    res_hist = []
+    hist_botella, res_hist = [], []
+    k = 0
     #|---- Diff Histogram ----|#
     for channel in range(3):
-        hist2 = cv2.calcHist([botella], [channel], None, [256], [0, 256])
-        cv2.normalize(hist2, hist2, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
+        hist2 = cv2.calcHist([botella], [channel], None, [256], [0, 255])
+        cv2.normalize(hist2, hist2, 0, 1, cv2.NORM_MINMAX)
         hist_botella.append(hist2)
     
     for j in objeto:
@@ -96,15 +92,16 @@ def seleccionar_object(objeto,img):
         hist_frame = []
         #|---- crop img ----|#
         img2 = roi(j,img.copy())
-        img2 = cv2.cvtColor(img2, cv2.COLOR_GRAY2BGR)
         #|----  ----|#
         for channel in range(3):
-            hist = cv2.calcHist([img2],[channel], None, [256], [0, 256])
-            cv2.normalize(hist, hist, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
+            hist = cv2.calcHist([img2],[channel], None, [256], [0, 255])
+            cv2.normalize(hist, hist, 0, 1, cv2.NORM_MINMAX)
             hist_frame.append(hist)
-            
-        for k,i in enumerate(hist_frame,0):
+        
+        for i in hist_frame:
+            if k >= 3: k =0
             res_hist.append(cv2.compareHist(hist_botella[k], i, cv2.HISTCMP_CORREL))
+            k = k+1
     #|---- hitograma mas parecido ----|#
     R,G,B = 0,0,0
     control,position = 0,0
@@ -127,7 +124,7 @@ def seleccionar_object(objeto,img):
             comp_hist1 = comp_hist1+1
         #||#
         if comp_hist1 < comp_hist2:
-            R,G,B = res_hist[control+1],res_hist[control+2],res_hist[control+3]
+            R,G,B = res_hist[control],res_hist[control+1],res_hist[control+2]
             position = k
             control = control+3
         else:
@@ -146,13 +143,11 @@ def entrenar_knn(trainData,responses):
     return knn
 
 def clasificar(des, knn):
-    newcomer = reducir(des,50) 
-    #newcomer.append([107, 249, 16, 90, 121, 157, 82, 252, 139, 121, 52, 12, 174, 217, 78, 180, 133, 91, 215, 92, 199, 106, 250, 245, 191, 221, 21, 123, 90, 14, 139, 159])
+    newcomer = reduccion(des)
     newcomer = np.array(newcomer).astype(np.float32)
     cero,uno = 0,0
     #|------------------------------------------------|#
-    #print(len(newcomer),newcomer.dtype)
-    ret, results, neighbours, dist = knn.findNearest(newcomer, 30)
+    ret, results, neighbours, dist = knn.findNearest(newcomer, 17)
     #|---- iteracion de respuestas ----|#
     for i in results:
         if i == 0:
@@ -165,96 +160,63 @@ def clasificar(des, knn):
     else:
         return 0
 
-def cargar_carac(path,orb):
-    i = 0
-    points = []
-    descript = []
-    imgs = []
-    while(True):
-        path1 = path+str(i)+".jpg"
-        i= i+1
-        img = cv2.imread(path1)
-        if img is None:
-            print("carga finalizada.")
-            break
-        img = re_size(img,0.1)
-        img = pro_img(img)
-        kp, des = orb.detectAndCompute(img, None)
-        imgs.append(img)
-        points.append(kp)
-        descript.append(des)
-    print("|--- Saliendo carga_caract ---|")
-    return imgs, points, descript
+def reduccion(descriptors):
+    size = len(descriptors)
+    ratio = int(size/50)
+    new_descriptors = []
+    w = 1
+    for j in descriptors:
+        
+        if w == (ratio):
+            new_descriptors.append(j)
+            w = 1
+            continue
+        w = w+1
+    return new_descriptors
 
-def reducir(des,min):
-    ratio = int(len(des)/min)
-    control = 0
-    new_des = []
-    for i in range(min):
-        new_des.append(des[control])
-        control = control + ratio
-    print("|--- Saliendo reducir ---|")
-    return new_des
-
-def f_match(img1, imgs, kp2, des2, orb, img2=None):
-    
+def f_match(img1, orb):
     kp1, des1 = orb.detectAndCompute(img1, None)
-    
-    FLANN_INDEX_LSH = 0
-    index_params= dict(algorithm = FLANN_INDEX_LSH,
-                       table_number = 6, # 12
-                       key_size = 12,     # 20
-                       multi_probe_level = 1) #2
-    search_params = dict(checks=50)   # or pass empty dictionary
-
-    flann = cv2.FlannBasedMatcher(index_params,search_params)
-    
-    matches_desc = []
-    for d in des2:
-        matches = flann.knnMatch(np.asarray(d,np.float32),np.asarray(des1,np.float32),k=2)
-        matches_desc.append(matches)
-    
-    x=list(map(lambda a: len(a),matches_desc))
-   
-    maximo = x.index(max(x))
-    matches = matches_desc[maximo]
-    kp2 = kp2[maximo]
-    img2 = imgs[maximo]
-    # Need to draw only good matches, so create a mask
-    matchesMask = [[0,0] for i in range(len(matches))]
-    
-    # ratio test as per Lowe's paper
-    for i,(m,n) in enumerate(matches):
-        if m.distance < 0.8*n.distance:
-            matchesMask[i]=[1,0,0]
-
-    draw_params = dict(matchColor = (0,255,0),
-                       singlePointColor = (255,0,0),
-                       matchesMask = matchesMask,
-                       flags = 0)
-                
-    '''for i, k in enumerate(matches,0):
-        for j, p in enumerate(k[i],0):
-            print(kp1[p[i][j].queryIdx].pt,kp2[p[i][j].trainIdx].pt)'''
-    #print(kp1[matches[0][0].trainIdx].pt)
-    
-    img3 = cv2.drawMatchesKnn(img2,kp2,img1,kp1,matches,None,**draw_params)
     pts = np.array([kp1[idx].pt for idx in range(0, len(kp1))]).astype(int)
-    print("|--- Saliendo f_match ---|")
-    return img3, pts, des1
+    return pts, des1
+
+def ecualizar(img):
+    #|Separar canales de la imagen|#
+    for i in range(3):
+        img[:,:,i] = cv2.equalizeHist(img[:,:,i])
+    return img
+
+def convol(img, control):
+    if control == 1:
+        kernel = np.array([[0,-1,0],[-1,5,-1],[0,-1,0]])
+    if control == 2:
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5))
+    img2 = cv2.filter2D(img,-1,kernel)
+    img = cv2.add(img,img2)
+    return img
 
 def pro_img(img):
-    #|----------------------------------------------------|#
-    kernel2 = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
-    #|----------------------------------------------------|#
-    img = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
-    img = cv2.equalizeHist(img)
-    img2 = cv2.filter2D(img, 0, kernel2)
-    img = cv2.addWeighted(img, 0.7, img2, 0.3, 0)
+    img = ecualizar(img)
+    img = convol(img, 1)
     #|----------------------------------------------------|#
     #print("|--- pro_img ---|")
     return img
 
+def mascara(hsv, control):
+    if control == 1:
+        rojo_b1, rojo_a1 = np.array([0, 100, 100]), np.array([10, 255, 255])
+        rojo_b2, rojo_a2 = np.array([160, 100, 100]), np.array([179, 255, 255])
+        #|------|#
+        mask1 = cv2.inRange(hsv, rojo_b1, rojo_a1)
+        mask2 = cv2.inRange(hsv, rojo_b2, rojo_a2)
+        #|------|#
+        return cv2.add(mask1, mask2)
+    if control == 2:
+        rojo_b1, rojo_a1 = np.array([0, 0, 255]), np.array([130, 130, 255])
+        #|------|#
+        mask1 = cv2.inRange(hsv, rojo_b1, rojo_a1)
+        #|------|#
+        return mask1
+    return 0
 def re_size(img,proporcion):
     alto, ancho, _ = img.shape
     #|---------------------------------|#
@@ -288,12 +250,10 @@ def n_blobs(points, desc, ms, img, knn):
         else:
             print("Puntos insuficientes: ",cl[4]) 
             
-    img2, wd = seleccionar_object(objeto, img)
-    #|----------------------------------------|#
-    #cv2.imshow("Coca-Cola2",img2)
-    #cv2.waitKey(1000)
-    print("|---- frame ----|")   
-    return img2, wd
+    img2, clfin = seleccionar_object(objeto, img)
+    #|--- Conver format color in HSV ---|#
+    img2 =  cv2.cvtColor(img2, cv2.COLOR_BGR2HSV) 
+    return img2, clfin
 
 def roi(objeto,img2):
     w = objeto[1] - objeto[0]
@@ -338,18 +298,8 @@ def indices( lista, value):
     return [i for i,x in enumerate(lista) if x==value]
 
 def seguimiento(frame, roi_hist, track_window, term_crit ):
-    #|--- Convert format color to HSV ---|#
-    know_img = frame.shape
-    if len(know_img) == 2:
-        frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     #|--- Calculate backprojection ---|#
-    dst = cv2.calcBackProject([hsv],[0,1],roi_hist,[160,170,0,256],1)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5))
-    dst = cv2.filter2D(dst, -1, kernel)
-    #_, dst = cv2.threshold(dst, 30, 255, cv2.THRESH_BINARY)
-    plt.imshow(dst)
-    plt.show()
+    dst = cv2.calcBackProject([frame],[0,1],roi_hist,[0, 179, 0, 255],1)
     #|--- Calculate a new location ---|#
     ret, track_window = cv2.meanShift(dst, track_window, term_crit)
     #|--- Draw a new region ---|#
@@ -358,23 +308,14 @@ def seguimiento(frame, roi_hist, track_window, term_crit ):
     return frame2, track_window
 
 def preparar_track(roi, cl):
-    kernel2 = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
-    img2 = cv2.filter2D(roi, 0, kernel2)
-    roi = cv2.addWeighted(roi, 0.5, img2, 0.5, 0)
     #|--- Make a point window ---|#
     x, y, w, h = cl[0], cl[2], (cl[1] - cl[0]), (cl[3] - cl[2])
     track_window = (x, y, w, h)
-    #|--- Conver format color in HSV ---|#
-    know_img = roi.shape
-    if len(know_img) == 2:
-        roi = cv2.cvtColor(roi, cv2.COLOR_GRAY2BGR)
-    hsv_roi =  cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-    hsv_roi = roi[y:y+h,x:x+w]
     #|--- Make a mask ---|#
-    mask = cv2.inRange(hsv_roi, np.array((0., 60.,32.)), np.array((180.,255.,255.)))
-    roi_hist = cv2.calcHist([hsv_roi], [0, 1], mask, [180,256], [0,180,0,256])
-    plt.imshow(roi_hist)
-    plt.show()
+    mask = mascara(roi, 1)
+    roi_hist = cv2.calcHist([roi], [0, 1], mask, [180, 256], [0,179, 0,255])
+    #plt.imshow(roi_hist)
+    #plt.show()
     cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
     #|--- Establecer condiciones de paro|#
     term_crit = ( cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1 )
@@ -388,10 +329,9 @@ ms = MeanShift()
 #|---------------------------------------------------|#
 trainData, responses = conversion_matriz()
 knn = entrenar_knn(trainData, responses)
-images_, kpoints_, descriptors_ = cargar_carac("Imagenes-Objeto/Orientaciones/img",orb)
 #|---------------------------------------------------|#
 track_window, roi_hist, term_crit = (),0,0
-control = True
+control, k = True, 0
 #|---------------------------------------------------|#
 while cap.isOpened():
     ret, frame = cap.read()
@@ -399,20 +339,16 @@ while cap.isOpened():
     if not ret:
         print("Fin del stream.")
         break
-    img1 = pro_img(frame)
-    img3, pts, desc = f_match(img1, images_,kpoints_, descriptors_, orb)
+    img1 = pro_img(frame.copy())
+    pts, desc = f_match(img1, orb)
     if control == True:
         #|---- ROI and points ----|#
-        img4, cl = n_blobs(pts, desc, ms, img1,knn)
-        track_window, roi_hist, term_crit = preparar_track(frame,cl)
-        control = False
-        
+        img2, cl = n_blobs(pts, desc, ms, img1,knn)
+        if cl != None:
+            track_window, roi_hist, term_crit = preparar_track(img2,cl)
+            control = False
     track_img, track_window = seguimiento(frame, roi_hist, track_window, term_crit)
-    
-    cv2.imshow("img final",track_img)
+    cv2.imshow("Frame",frame)
+    cv2.imshow("Imagen final",track_img)
     cv2.waitKey(100)
 print("|--- Fin ---|")
-#|KD-Tree|#
-#|Diferencia de histogramas|#
-#|ROI - Clousters - Histogramas|#
-#|Matriz de puntos - Match|#
