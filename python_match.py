@@ -1,7 +1,7 @@
 from sklearn.cluster import MeanShift, estimate_bandwidth
 import numpy as np
-from matplotlib import pyplot as plt
 import cv2
+import math
 
 #|---------------------------------------------------|#
 def conversion_matriz():
@@ -72,68 +72,59 @@ def r_archivo(path):
     print("|--- Saliendo r_archivo ---|")
     return arrayMaster
 
-def seleccionar_object(objeto,img):
-    if len(objeto) == 0:
-        print("No existen objetos.")
-        print("|---- saliendo seleccionar_object ----|")
-        return img, None
-    #|---- local var ----|#
-    botella = cv2.imread("Imagenes-Objeto/Botella/img6.png")
-    hist_botella, res_hist = [], []
-    k = 0
-    #|---- Diff Histogram ----|#
+def comparar_resultados(cl, cl_fin):
+    roi_img, roi_final = cl[10], cl_fin[10]
+    if roi_final is None:
+        cl_fin = cl
+        return cl_fin
+    #|--- verificar result ---|#
+    if roi_img == None:
+        return cl_fin
+    #|--- variables locales ---|#
+    mayor = 0
+    #|--- comparar  ---|#
+    for i in range(3):
+        if roi_final[i] < roi_img[i]:
+            mayor = mayor+1
+    if mayor >= 2:
+        cl_fin = cl
+    return cl_fin
+
+def seleccionar_imagen(cl, img):
+    centro, img2 = cl[6], img.copy()
+    #|--- Calcular marco del cluster ---|#
+    top, left = centro[1]+int((cl[5]/2)), centro[0]-int((cl[4]/2))
+    bottom, right = centro[1]-int((cl[5]/2)), centro[0]+int((cl[4]/2))
+    #|--- Dibujar cluster ---|#
+    img = cv2.rectangle(img,(left, top),(right, bottom),(0,255,0),2)
+    img = cv2.circle(img,(centro[0],centro[1]), 5, (0,255,255), -1)
+    #|--- ROI ---|#
+    img2 = img2[bottom:top, left:right]
+    #|--- Variables de analisis ---|#
+    imagen = cv2.imread("Imagenes-Objeto/Botella/img0.png")
+    hist_botella, hist_frame, result = [], [], []
+    #|--- Mejorar imagen ---|#
+    imagen = re_size(imagen,0.1)
+    imagen = ecualizar(imagen)
+    #|--- Calcular histograma ---|#
     for channel in range(3):
-        hist2 = cv2.calcHist([botella], [channel], None, [256], [0, 255])
-        cv2.normalize(hist2, hist2, 0, 1, cv2.NORM_MINMAX)
-        hist_botella.append(hist2)
+        #|--- Botella estandarizada ---|#
+        cal_histB = cv2.calcHist(imagen[:,:,channel], [channel], None, [256], [0, 255])
+        cv2.normalize(cal_histB, cal_histB, 0, 255, cv2.NORM_MINMAX)
+        hist_botella.append(cal_histB)
+        #|--- Imagen extraida del frame ---|#
+        cal_hisF = cv2.calcHist(img2[:,:,channel], [channel], None, [256], [0, 255])
+        cv2.normalize(cal_hisF, cal_hisF, 0, 255, cv2.NORM_MINMAX)
+        hist_frame.append(cal_hisF)
     
-    for j in objeto:
-        #|---- var de ciclo ----|#
-        hist_frame = []
-        #|---- crop img ----|#
-        img2 = roi(j,img.copy())
-        #|----  ----|#
-        for channel in range(3):
-            hist = cv2.calcHist([img2],[channel], None, [256], [0, 255])
-            cv2.normalize(hist, hist, 0, 1, cv2.NORM_MINMAX)
-            hist_frame.append(hist)
-        
-        for i in hist_frame:
-            if k >= 3: k =0
-            res_hist.append(cv2.compareHist(hist_botella[k], i, cv2.HISTCMP_CORREL))
-            k = k+1
-    #|---- hitograma mas parecido ----|#
-    R,G,B = 0,0,0
-    control,position = 0,0
-    for k,i in enumerate(objeto,0):
-        comp_hist1, comp_hist2 = 0,0
-        #||#
-        if R < res_hist[control]:
-            comp_hist2 = comp_hist2+1
-        else:
-            comp_hist1 = comp_hist1+1
-            
-        if G < res_hist[(control+1)]:
-            comp_hist2 = comp_hist2+1
-        else:
-            comp_hist1 = comp_hist1+1
-            
-        if B < res_hist[(control+2)]:
-            comp_hist2 = comp_hist2+1
-        else:
-            comp_hist1 = comp_hist1+1
-        #||#
-        if comp_hist1 < comp_hist2:
-            R,G,B = res_hist[control],res_hist[control+1],res_hist[control+2]
-            position = k
-            control = control+3
-        else:
-            control = control+3
-    #||#
-    cl = objeto[position]
-    img2 = roi(cl,img.copy())
-    print("|---- saliendo seleccionar_object ----|")
-    return img2, cl
+    for k,i in enumerate(hist_botella,0):
+        result.append(cv2.compareHist(i,hist_frame[k], cv2.HISTCMP_CORREL))
+    
+    #|--- Agregar imagen comparada ---|#
+    result.append(img2)
+    cl[10] = result
+    cv2.imshow("Botella", imagen)
+    return img, cl
 
 def entrenar_knn(trainData,responses):
     #|------------------------------------------------|#
@@ -141,24 +132,6 @@ def entrenar_knn(trainData,responses):
     knn.train(trainData, cv2.ml.ROW_SAMPLE, responses)
     print("|--- Saliendo entrenar_knn ---|")
     return knn
-
-def clasificar(des, knn):
-    newcomer = reduccion(des)
-    newcomer = np.array(newcomer).astype(np.float32)
-    cero,uno = 0,0
-    #|------------------------------------------------|#
-    ret, results, neighbours, dist = knn.findNearest(newcomer, 17)
-    #|---- iteracion de respuestas ----|#
-    for i in results:
-        if i == 0:
-            cero = cero +1
-        if i == 1:
-            uno = uno+1
-    print("|--- Saliendo clasificar ---|")
-    if uno > cero:
-        return 1
-    else:
-        return 0
 
 def reduccion(descriptors):
     size = len(descriptors)
@@ -174,127 +147,110 @@ def reduccion(descriptors):
         w = w+1
     return new_descriptors
 
-def f_match(img1, orb):
-    kp1, des1 = orb.detectAndCompute(img1, None)
-    pts = np.array([kp1[idx].pt for idx in range(0, len(kp1))]).astype(int)
-    return pts, des1
+def orb_features(img):
+    #|--- Orb features ---|#
+    orb = cv2.ORB_create(nfeatures=650, scaleFactor=1.2, WTA_K=2, scoreType=cv2.ORB_HARRIS_SCORE, patchSize=31)    
+    kp, des = orb.detectAndCompute(img, None)
+    img2 = cv2.drawKeypoints(img,kp, None,color=(0,255,0), flags=0)
+    kp = np.array([kp[idx].pt for idx in range(0, len(kp))]).astype(int)
+    #cv2.imshow("imagen2",img2)
+    return kp, des
 
 def ecualizar(img):
-    #|Separar canales de la imagen|#
-    for i in range(3):
-        img[:,:,i] = cv2.equalizeHist(img[:,:,i])
+    img = cv2.cvtColor(img,cv2.COLOR_BGR2HSV)
+    img[:,:,2] = cv2.equalizeHist(img[:,:,2])
+    img = cv2.normalize(img,None,0,255,cv2.NORM_MINMAX)
+    img = cv2.cvtColor(img,cv2.COLOR_HSV2BGR)
     return img
 
-def convol(img, control):
-    if control == 1:
+def convol(img, control2):
+    if control2 == 1:
         kernel = np.array([[0,-1,0],[-1,5,-1],[0,-1,0]])
-    if control == 2:
+    if control2 == 2:
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5))
     img2 = cv2.filter2D(img,-1,kernel)
     img = cv2.add(img,img2)
     return img
 
-def pro_img(img):
+def mejorar_imagen(img):
     img = ecualizar(img)
-    img = convol(img, 1)
-    #|----------------------------------------------------|#
-    #print("|--- pro_img ---|")
+    #img = convol(img, 1)
     return img
 
-def mascara(hsv, control):
-    if control == 1:
-        rojo_b1, rojo_a1 = np.array([0, 100, 100]), np.array([10, 255, 255])
-        rojo_b2, rojo_a2 = np.array([160, 100, 100]), np.array([179, 255, 255])
-        #|------|#
-        mask1 = cv2.inRange(hsv, rojo_b1, rojo_a1)
-        mask2 = cv2.inRange(hsv, rojo_b2, rojo_a2)
-        #|------|#
-        return cv2.add(mask1, mask2)
-    if control == 2:
-        rojo_b1, rojo_a1 = np.array([0, 0, 255]), np.array([130, 130, 255])
-        #|------|#
-        mask1 = cv2.inRange(hsv, rojo_b1, rojo_a1)
-        #|------|#
-        return mask1
-    return 0
+def mascara(hsv):
+    #|--- Rango de colores rojos ---|#
+    rojo_b1, rojo_a1 = np.array([0, 100, 100]), np.array([10, 255, 255])
+    rojo_b2, rojo_a2 = np.array([160, 100, 100]), np.array([179, 255, 255])
+    #|--- Creando mascara de rojos ---|#
+    mask1 = cv2.inRange(hsv, rojo_b1, rojo_a1)
+    mask2 = cv2.inRange(hsv, rojo_b2, rojo_a2)
+    #|--- Agregar ambas mascaras a una ---|#
+    mask0 = cv2.add(mask1, mask2)
+    return mask0
+
 def re_size(img,proporcion):
     alto, ancho, _ = img.shape
     #|---------------------------------|#
     alto = int(alto*proporcion)
     ancho = int(ancho*proporcion)
     #|---------------------------------|#
-    #print("|--- re_size ---|")
     return cv2.resize(img,(ancho,alto))
 
-def n_blobs(points, desc, ms, img, knn):
+def meanshift_cl(kp, des, img):
+    #|--- variables locales ---|#
+    cluster_final = [0,0,0,0,0,0,0,0,0,0,None]
     #|--- Meanshif var ---|#
-    bandwidth = estimate_bandwidth(points, quantile=0.1, n_samples=500)
-    ms = MeanShift(bandwidth = bandwidth, bin_seeding=True)
-    ms.fit(points)
+    bandwidth = estimate_bandwidth(kp, quantile=0.1, n_samples=650)
+    ms = MeanShift(bandwidth = bandwidth, bin_seeding=True, min_bin_freq=2, cluster_all=False)
+    ms.fit(kp)
     labels = ms.labels_
+    lista_label = labels.tolist()
     cluster_center = ms.cluster_centers_
-    #labels_unique = np.unique(labels)
-    #n_clusters_ = len(labels_unique)
-    #|--- local var ---|#
-    cl, objeto = [], []
-    #|---------------------------------------|#
-    for k, c in enumerate(cluster_center, 0):
-        #punto = (int(c[0]),int(c[1]))
-        cl = roi_section(k, points, desc, labels)
-        if cl[4] > 50:
-            result = clasificar(cl[5],knn)
-            #|--- Guardar descriptores ---|#
-            #w_archivo(cl, k)
-        if result == 0:
-            objeto.append(cl)
-        else:
-            print("Puntos insuficientes: ",cl[4]) 
-            
-    img2, clfin = seleccionar_object(objeto, img)
+    labels_unique = np.unique(labels)
+    n_clusters_ = len(labels_unique)
+    print("Clousters: ", n_clusters_)
+    img3 = img.copy()
+    #|--- Analizar cada cluster del frame ---|#
+    for k,i in enumerate(cluster_center,0):
+        centro = [int(i[0]), int(i[1])]
+        cluster = max_min(lista_label,k, kp, des, centro)#|Problema al igualar en nullo.|#
+        if cluster[4] <= 10 or cluster[5] <= 10:
+            print(cluster[4], cluster[5])
+            continue 
+        img3, cluster = seleccionar_imagen(cluster, img3)
+        cluster_final = comparar_resultados(cluster, cluster_final)
     #|--- Conver format color in HSV ---|#
-    img2 =  cv2.cvtColor(img2, cv2.COLOR_BGR2HSV) 
-    return img2, clfin
+    cv2.imshow("ASDASD", img3)
+    roi_img = cluster_final[10]
+    cv2.imshow("ROI", roi_img[3])
+    roi_img[3] =  cv2.cvtColor(roi_img[3], cv2.COLOR_BGR2HSV)
+    cluster_final[10] = roi_img
+    return cluster_final
 
-def roi(objeto,img2):
-    w = objeto[1] - objeto[0]
-    h = objeto[3] - objeto[2]
-    if w < 15: w = 15
-    if h < 15: h = 15
-    img2 = img2[objeto[2]:objeto[2]+h,objeto[0]:objeto[0]+w]
-    return img2
+def max_min(label, cluster, kp, des, centro):
+    position = indice(label,cluster)
+    size = len(position)
+    roi_kp, roi_des = [], []
+    minx, maxx, miny, maxy = 1000, 0, 1000, 0
+    #|--- Buscar puntos maximos y minimos ---|#
+    for i in position:
+        point = kp[i]
+        roi_kp.append(point)
+        roi_des.append(des[i])
+        if minx > point[0]:
+            minx = point[0]
+        if maxx < point[0]:
+            maxx = point[0]
+        if miny > point[1]:
+            miny = point[1]
+        if maxy < point[1]:
+            maxy = point[1]
+    
+    w, h = int(maxx - minx), int(maxy - miny)
+    cluster = [minx, maxx, miny, maxy, w, h, centro, size, roi_kp, roi_des, []]
+    return cluster
 
-def roi_section(n_cluster, points, desc, labels):
-    min_x,  max_x = 1000, 0
-    min_y, max_y = 1000, 0
-    size = 0
-    text_desc = []    
-    #|--------------------------------------------|#
-    for i in labels:
-        if i == n_cluster:
-            c = indices(labels.tolist(), i)
-            pt = points[c[size]]
-            des = desc[c[size]]
-            text_desc.append(des)
-            #|------|#
-            if min_x > pt[0]:
-                min_x = pt[0]
-
-            if max_x < pt[0]:
-                max_x = pt[0]
-
-            if min_y > pt[1]:
-                min_y = pt[1]
-
-            if max_y < pt[1]:
-                max_y = pt[1]
-            #|------|#
-            size = size+1
-    #|---------------------------------------------|#
-    cl = [min_x, max_x, min_y, max_y, size, text_desc]
-    print("|--- Saliendo roi_section ---|")
-    return cl
-
-def indices( lista, value):
+def indice( lista, value):
     return [i for i,x in enumerate(lista) if x==value]
 
 def seguimiento(frame, roi_hist, track_window, term_crit ):
@@ -304,34 +260,45 @@ def seguimiento(frame, roi_hist, track_window, term_crit ):
     ret, track_window = cv2.meanShift(dst, track_window, term_crit)
     #|--- Draw a new region ---|#
     x, y, w, h = track_window
-    frame2 = cv2.rectangle(frame, (x,y), (x+w,y+h), 255,2)
+    x1, y1, x2, y2 = (x-int(w/2)), (y+int(h/2)), (x+int(w/2)), (y-int(h/2)) 
+    frame2 = cv2.rectangle(frame, (x1,y1), (x2,y2), (0,255,), 2)
     return frame2, track_window
 
-def preparar_track(roi, cl):
+def preparar_track(cluster):
+    roi_img = cluster[10]
     #|--- Make a point window ---|#
-    x, y, w, h = cl[0], cl[2], (cl[1] - cl[0]), (cl[3] - cl[2])
+    centro = cluster[6]
+    w, h = cluster[4], cluster[5]
+    x, y, w, h = centro[0], centro[1], w, h
     track_window = (x, y, w, h)
     #|--- Make a mask ---|#
-    mask = mascara(roi, 1)
-    roi_hist = cv2.calcHist([roi], [0, 1], mask, [180, 256], [0,179, 0,255])
-    #plt.imshow(roi_hist)
-    #plt.show()
+    roi_hist = cv2.calcHist([roi_img[3]], [0, 1], None, [180, 256], [0,179, 0,255])
     cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
     #|--- Establecer condiciones de paro|#
     term_crit = ( cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1 )
     
     return track_window, roi_hist, term_crit
 
+def activate(anterior, track):
+    (x, y, _, _), (x1, y1, _, _) = track, anterior
+    
+    dst = int(math.sqrt((x1-x)**2+(y1-y)**2))
+    
+    if dst > 30:
+        print("Solicitar knn: \n","Distancia: ",dst)
+        return True
+    return False
 #|---------------------------------------------------|#
 cap = cv2.VideoCapture("Videos/Oorion1.avi")
-orb = cv2.ORB_create()
-ms = MeanShift()
+orb = cv2.ORB_create(nfeatures = 650)
+ms = 0#MeanShift()
 #|---------------------------------------------------|#
 trainData, responses = conversion_matriz()
 knn = entrenar_knn(trainData, responses)
 #|---------------------------------------------------|#
 track_window, roi_hist, term_crit = (),0,0
-control, k = True, 0
+ant_track = 0
+control = True
 #|---------------------------------------------------|#
 while cap.isOpened():
     ret, frame = cap.read()
@@ -339,16 +306,26 @@ while cap.isOpened():
     if not ret:
         print("Fin del stream.")
         break
-    img1 = pro_img(frame.copy())
-    pts, desc = f_match(img1, orb)
-    if control == True:
-        #|---- ROI and points ----|#
-        img2, cl = n_blobs(pts, desc, ms, img1,knn)
-        if cl != None:
-            track_window, roi_hist, term_crit = preparar_track(img2,cl)
-            control = False
-    track_img, track_window = seguimiento(frame, roi_hist, track_window, term_crit)
-    cv2.imshow("Frame",frame)
-    cv2.imshow("Imagen final",track_img)
+    img = mejorar_imagen(frame.copy())
+    if control is True:
+        #|--- ORB --|#
+        kp, des = orb_features(img)
+        #|---- Meanshift ----|#
+        cluster = meanshift_cl(kp, des, img)
+        #|--- Pre-Track ---|#
+        track_window, roi_hist, term_crit = preparar_track(cluster)
+        control = False
+    
+    ant_track = track_window
+    track_img, track_window = seguimiento(img.copy(), roi_hist, track_window, term_crit)
+    #control = activate(ant_track, track_window)
+    
+    #cv2.imshow("Frame",frame)
+    cv2.imshow("Imagen final", track_img)
     cv2.waitKey(100)
 print("|--- Fin ---|")
+'''
+-Deja de existir imagen en el entorno.
+-Comparacion de hitogramas.
+-Clasificado de knn.
+'''
