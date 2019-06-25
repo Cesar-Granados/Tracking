@@ -123,7 +123,7 @@ def seleccionar_imagen(cl, img):
     #|--- Agregar imagen comparada ---|#
     result.append(img2)
     cl[10] = result
-    cv2.imshow("Botella", imagen)
+    #cv2.imshow("Botella", imagen)
     return img, cl
 
 def entrenar_knn(trainData,responses):
@@ -166,12 +166,11 @@ def convol(img, control2):
     if control2 == 2:
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5))
     img2 = cv2.filter2D(img,-1,kernel)
-    img = cv2.add(img,img2)
-    return img
+    return img2
 
 def mejorar_imagen(img):
-    img = ecualizar(img)
     #img = convol(img, 1)
+    img = ecualizar(img)
     return img
 
 def re_size(img,proporcion):
@@ -256,8 +255,10 @@ def indice( lista, value):
     return [i for i,x in enumerate(lista) if x==value]
 
 def seguimiento(frame, roi_hist, track_window, term_crit ):
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     #|--- Calculate backprojection ---|#
-    dst = cv2.calcBackProject([frame],[0, 1, 2],roi_hist,[0,179, 0,255, 0,255],1)
+    dst = cv2.calcBackProject([frame],[0],roi_hist,[0,179],1)
+    cv2.imshow("hist", dst)
     #|--- Calculate a new location ---|#
     ret, track_window = cv2.meanShift(dst, track_window, term_crit)
     #|--- Draw a new region ---|#
@@ -266,6 +267,15 @@ def seguimiento(frame, roi_hist, track_window, term_crit ):
     frame2 = cv2.rectangle(frame, (x1,y1), (x2,y2), (0,255,), 2)
     return frame2, track_window
 
+def mascara(img):
+    rojo1, rojoa1 = np.array([0,110,110]), np.array([10,255,255])
+    rojo2, rojoa2 = np.array([160,110,110]), np.array([179,255,255])
+    mask1 = cv2.inRange(img, rojo1, rojoa1)
+    mask2 = cv2.inRange(img, rojo2, rojoa2)
+    mask0 = cv2.add(mask1, mask2)
+    cv2.imshow("Mascara", mask0)
+    return mask0
+    
 def preparar_track(cluster):
     roi_img = cluster[10]
     hsv_roi = roi_img[3]
@@ -277,7 +287,8 @@ def preparar_track(cluster):
     x, y, w, h = centro[0], centro[1], w, h
     track_window = (x, y, w, h)
     #|--- Make a mask ---|#
-    roi_hist = cv2.calcHist([hsv_roi], [0, 1, 2], None, [180, 256, 256], [0,179, 0,255, 0,255])
+    mask = mascara(hsv_roi.copy())
+    roi_hist = cv2.calcHist([hsv_roi], [0], mask, [180], [0,179])
     cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
     #|--- Establecer condiciones de paro|#
     term_crit = ( cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1 )
@@ -328,8 +339,8 @@ while cap.isOpened():
     track_img, track_window = seguimiento(img.copy(), roi_hist, track_window, term_crit)
     #control = activate(ant_track, track_window)
     
-    #cv2.imshow("Frame",frame)
-    cv2.imshow("Imagen final", track_img)
+    img_final = cv2.cvtColor(track_img, cv2.COLOR_HSV2BGR)
+    cv2.imshow("Imagen final", img_final)
     cv2.waitKey(100)
 print("|--- Fin ---|")
 '''
