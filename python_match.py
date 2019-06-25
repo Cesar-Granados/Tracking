@@ -133,19 +133,16 @@ def entrenar_knn(trainData,responses):
     print("|--- Saliendo entrenar_knn ---|")
     return knn
 
-def reduccion(descriptors):
-    size = len(descriptors)
+def reduccion(descriptores):
+    size = len(descriptores)
     ratio = int(size/50)
-    new_descriptors = []
-    w = 1
-    for j in descriptors:
+    new_descriptores = []
+    w = 0
+    for i in range(50):
+        new_descriptores.append(descriptores[w])
+        w = w + ratio
         
-        if w == (ratio):
-            new_descriptors.append(j)
-            w = 1
-            continue
-        w = w+1
-    return new_descriptors
+    return new_descriptores
 
 def orb_features(img):
     #|--- Orb features ---|#
@@ -177,17 +174,6 @@ def mejorar_imagen(img):
     #img = convol(img, 1)
     return img
 
-def mascara(hsv):
-    #|--- Rango de colores rojos ---|#
-    rojo_b1, rojo_a1 = np.array([0, 100, 100]), np.array([10, 255, 255])
-    rojo_b2, rojo_a2 = np.array([160, 100, 100]), np.array([179, 255, 255])
-    #|--- Creando mascara de rojos ---|#
-    mask1 = cv2.inRange(hsv, rojo_b1, rojo_a1)
-    mask2 = cv2.inRange(hsv, rojo_b2, rojo_a2)
-    #|--- Agregar ambas mascaras a una ---|#
-    mask0 = cv2.add(mask1, mask2)
-    return mask0
-
 def re_size(img,proporcion):
     alto, ancho, _ = img.shape
     #|---------------------------------|#
@@ -195,6 +181,27 @@ def re_size(img,proporcion):
     ancho = int(ancho*proporcion)
     #|---------------------------------|#
     return cv2.resize(img,(ancho,alto))
+
+def resultado_knn(resultados):
+    no_botella = 0
+    #|--- Comprobar resultados ---|#
+    for i in resultados:
+        if i == 1:
+            no_botella = no_botella+1
+    #|--- Verificar respuestas ---|#
+    if no_botella >= 26:
+        return 1
+    return 0
+
+def k_nearest(knn, cluster):
+    #|--- Ajustar escriptores ---|#
+    descriptores = cluster[9]
+    descriptores = reduccion(descriptores)
+    newcomer = np.array(descriptores).astype(np.float32)
+    #|--- Ejecutar knn ---|#
+    ret, results, neighbours, dist = knn.findNearest(newcomer, 31)
+    #|--- Analizar resultados ---|#
+    return resultado_knn(results)
 
 def meanshift_cl(kp, des, img):
     #|--- variables locales ---|#
@@ -215,16 +222,11 @@ def meanshift_cl(kp, des, img):
         centro = [int(i[0]), int(i[1])]
         cluster = max_min(lista_label,k, kp, des, centro)#|Problema al igualar en nullo.|#
         if cluster[4] <= 10 or cluster[5] <= 10:
-            print(cluster[4], cluster[5])
+            print("Cluster rechazado: ","Ancho:",cluster[4], " Alto:", cluster[5],)
             continue 
         img3, cluster = seleccionar_imagen(cluster, img3)
         cluster_final = comparar_resultados(cluster, cluster_final)
-    #|--- Conver format color in HSV ---|#
-    cv2.imshow("ASDASD", img3)
-    roi_img = cluster_final[10]
-    cv2.imshow("ROI", roi_img[3])
-    roi_img[3] =  cv2.cvtColor(roi_img[3], cv2.COLOR_BGR2HSV)
-    cluster_final[10] = roi_img
+        
     return cluster_final
 
 def max_min(label, cluster, kp, des, centro):
@@ -255,7 +257,7 @@ def indice( lista, value):
 
 def seguimiento(frame, roi_hist, track_window, term_crit ):
     #|--- Calculate backprojection ---|#
-    dst = cv2.calcBackProject([frame],[0,1],roi_hist,[0, 179, 0, 255],1)
+    dst = cv2.calcBackProject([frame],[0, 1, 2],roi_hist,[0,179, 0,255, 0,255],1)
     #|--- Calculate a new location ---|#
     ret, track_window = cv2.meanShift(dst, track_window, term_crit)
     #|--- Draw a new region ---|#
@@ -266,17 +268,19 @@ def seguimiento(frame, roi_hist, track_window, term_crit ):
 
 def preparar_track(cluster):
     roi_img = cluster[10]
+    hsv_roi = roi_img[3]
+    cv2.imshow("Track", hsv_roi)
+    hsv_roi = cv2.cvtColor(hsv_roi, cv2.COLOR_BGR2HSV)
     #|--- Make a point window ---|#
     centro = cluster[6]
     w, h = cluster[4], cluster[5]
     x, y, w, h = centro[0], centro[1], w, h
     track_window = (x, y, w, h)
     #|--- Make a mask ---|#
-    roi_hist = cv2.calcHist([roi_img[3]], [0, 1], None, [180, 256], [0,179, 0,255])
+    roi_hist = cv2.calcHist([hsv_roi], [0, 1, 2], None, [180, 256, 256], [0,179, 0,255, 0,255])
     cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
     #|--- Establecer condiciones de paro|#
     term_crit = ( cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1 )
-    
     return track_window, roi_hist, term_crit
 
 def activate(anterior, track):
@@ -310,8 +314,12 @@ while cap.isOpened():
     if control is True:
         #|--- ORB --|#
         kp, des = orb_features(img)
-        #|---- Meanshift ----|#
+        #|--- Meanshift ---|#
         cluster = meanshift_cl(kp, des, img)
+        #|--- KNN ---|#
+        result = k_nearest(knn, cluster)
+        if result == 1:
+            continue
         #|--- Pre-Track ---|#
         track_window, roi_hist, term_crit = preparar_track(cluster)
         control = False
