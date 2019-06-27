@@ -2,6 +2,7 @@ from sklearn.cluster import MeanShift, estimate_bandwidth
 import numpy as np
 import cv2
 import math
+import time
 
 #|---------------------------------------------------|#
 def conversion_matriz():
@@ -72,60 +73,6 @@ def r_archivo(path):
     print("|--- Saliendo r_archivo ---|")
     return arrayMaster
 
-def comparar_resultados(cl, cl_fin):
-    roi_img, roi_final = cl[10], cl_fin[10]
-    if roi_final is None:
-        cl_fin = cl
-        return cl_fin
-    #|--- verificar result ---|#
-    if roi_img == None:
-        return cl_fin
-    #|--- variables locales ---|#
-    mayor = 0
-    #|--- comparar  ---|#
-    for i in range(3):
-        if roi_final[i] < roi_img[i]:
-            mayor = mayor+1
-    if mayor >= 2:
-        cl_fin = cl
-    return cl_fin
-
-def seleccionar_imagen(cl, img):
-    centro, img2 = cl[6], img.copy()
-    #|--- Calcular marco del cluster ---|#
-    top, left = centro[1]+int((cl[5]/2)), centro[0]-int((cl[4]/2))
-    bottom, right = centro[1]-int((cl[5]/2)), centro[0]+int((cl[4]/2))
-    #|--- Dibujar cluster ---|#
-    img = cv2.rectangle(img,(left, top),(right, bottom),(0,255,0),2)
-    img = cv2.circle(img,(centro[0],centro[1]), 5, (0,255,255), -1)
-    #|--- ROI ---|#
-    img2 = img2[bottom:top, left:right]
-    #|--- Variables de analisis ---|#
-    imagen = cv2.imread("Imagenes-Objeto/Botella/img0.png")
-    hist_botella, hist_frame, result = [], [], []
-    #|--- Mejorar imagen ---|#
-    imagen = re_size(imagen,0.1)
-    imagen = ecualizar(imagen)
-    #|--- Calcular histograma ---|#
-    for channel in range(3):
-        #|--- Botella estandarizada ---|#
-        cal_histB = cv2.calcHist(imagen[:,:,channel], [channel], None, [256], [0, 255])
-        cv2.normalize(cal_histB, cal_histB, 0, 255, cv2.NORM_MINMAX)
-        hist_botella.append(cal_histB)
-        #|--- Imagen extraida del frame ---|#
-        cal_hisF = cv2.calcHist(img2[:,:,channel], [channel], None, [256], [0, 255])
-        cv2.normalize(cal_hisF, cal_hisF, 0, 255, cv2.NORM_MINMAX)
-        hist_frame.append(cal_hisF)
-    
-    for k,i in enumerate(hist_botella,0):
-        result.append(cv2.compareHist(i,hist_frame[k], cv2.HISTCMP_CORREL))
-    
-    #|--- Agregar imagen comparada ---|#
-    result.append(img2)
-    cl[10] = result
-    #cv2.imshow("Botella", imagen)
-    return img, cl
-
 def entrenar_knn(trainData,responses):
     #|------------------------------------------------|#
     knn = cv2.ml.KNearest_create()
@@ -148,7 +95,7 @@ def orb_features(img):
     #|--- Orb features ---|#
     orb = cv2.ORB_create(nfeatures=650, scaleFactor=1.2, WTA_K=2, scoreType=cv2.ORB_HARRIS_SCORE, patchSize=31)    
     kp, des = orb.detectAndCompute(img, None)
-    img2 = cv2.drawKeypoints(img,kp, None,color=(0,255,0), flags=0)
+    #img2 = cv2.drawKeypoints(img,kp, None,color=(0,255,0), flags=0)
     kp = np.array([kp[idx].pt for idx in range(0, len(kp))]).astype(int)
     #cv2.imshow("imagen2",img2)
     return kp, des
@@ -193,18 +140,27 @@ def resultado_knn(resultados):
     return 0
 
 def k_nearest(knn, cluster):
-    #|--- Ajustar escriptores ---|#
-    descriptores = cluster[9]
-    descriptores = reduccion(descriptores)
-    newcomer = np.array(descriptores).astype(np.float32)
-    #|--- Ejecutar knn ---|#
-    ret, results, neighbours, dist = knn.findNearest(newcomer, 31)
-    #|--- Analizar resultados ---|#
-    return resultado_knn(results)
+    resultados, botella = [], []
+    #|--- Organizar cluster ---|#
+    for i in cluster:
+        #|--- reduccion a 50 descriptores ---|#
+        descriptor = reduccion(i[9])
+        #|--- estandarizar al knn ---|#
+        newcomer = np.array(descriptor).astype(np.float32)
+        #|--- aplicar knn ---|#
+        ret, results, neighbours, dist = knn.findNearest(newcomer, 7)
+        #|--- Almacenar resultados ---|#
+        resultados.append(resultado_knn(results))
+    #|--- Analisar resultados ---|#
+    for i,j in enumerate(resultados):
+        if j == 0:
+            botella.append(cluster[i])
+            
+    return botella
 
 def meanshift_cl(kp, des, img):
     #|--- variables locales ---|#
-    cluster_final = [0,0,0,0,0,0,0,0,0,0,None]
+    cluster_final = []
     #|--- Meanshif var ---|#
     bandwidth = estimate_bandwidth(kp, quantile=0.1, n_samples=650)
     ms = MeanShift(bandwidth = bandwidth, bin_seeding=True, min_bin_freq=2, cluster_all=False)
@@ -214,21 +170,22 @@ def meanshift_cl(kp, des, img):
     cluster_center = ms.cluster_centers_
     labels_unique = np.unique(labels)
     n_clusters_ = len(labels_unique)
-    print("Clousters: ", n_clusters_)
+    print("Clusters: ", n_clusters_)
     img3 = img.copy()
     #|--- Analizar cada cluster del frame ---|#
+    tcl = time.time()
     for k,i in enumerate(cluster_center,0):
         centro = [int(i[0]), int(i[1])]
-        cluster = max_min(lista_label,k, kp, des, centro)#|Problema al igualar en nullo.|#
-        if cluster[4] <= 10 or cluster[5] <= 10:
-            print("Cluster rechazado: ","Ancho:",cluster[4], " Alto:", cluster[5],)
-            continue 
-        img3, cluster = seleccionar_imagen(cluster, img3)
-        cluster_final = comparar_resultados(cluster, cluster_final)
-        
+        cluster = max_min(lista_label,k, kp, des, centro, img.copy())#|Problema al igualar en nullo.|#
+        if cluster[7] < 50 or cluster[4] <= 10 or cluster[5] <= 10:
+            print("Cluster rechazado: ", "ancho:",cluster[4], " alto:", cluster[5], " points:",cluster[7])
+            continue
+        cluster_final.append(cluster)
+    tcl_f = time.time() - tcl
+    print("Timepo correlacion.", tcl_f)
     return cluster_final
 
-def max_min(label, cluster, kp, des, centro):
+def max_min(label, cluster, kp, des, centro, img):
     position = indice(label,cluster)
     size = len(position)
     roi_kp, roi_des = [], []
@@ -246,9 +203,14 @@ def max_min(label, cluster, kp, des, centro):
             miny = point[1]
         if maxy < point[1]:
             maxy = point[1]
-    
+    #|--- Calculo del ancho y alto del cluster ---|#
     w, h = int(maxx - minx), int(maxy - miny)
-    cluster = [minx, maxx, miny, maxy, w, h, centro, size, roi_kp, roi_des, []]
+    #|--- ROI image ---|#
+    top, left = centro[1]+int((h/2)), centro[0]-int((w/2))
+    bottom, right = centro[1]-int((h/2)), centro[0]+int((w/2))
+    imagen = img[bottom:top, left:right]
+    #|--- Organizar caracteristicas ---|#
+    cluster = [minx, maxx, miny, maxy, w, h, centro, size, roi_kp, roi_des, imagen]
     return cluster
 
 def indice( lista, value):
@@ -262,25 +224,29 @@ def seguimiento(frame, roi_hist, track_window, term_crit ):
     #|--- Calculate a new location ---|#
     ret, track_window = cv2.meanShift(dst, track_window, term_crit)
     #|--- Draw a new region ---|#
+    frame = cv2.cvtColor(frame, cv2.COLOR_HSV2BGR)
     x, y, w, h = track_window
     x1, y1, x2, y2 = (x-int(w/2)), (y+int(h/2)), (x+int(w/2)), (y-int(h/2)) 
-    frame2 = cv2.rectangle(frame, (x1,y1), (x2,y2), (0,255,), 2)
+    frame2 = cv2.rectangle(frame, (x1,y1), (x2,y2), (0,255,0), 2)
     return frame2, track_window
 
 def mascara(img):
-    rojo1, rojoa1 = np.array([0,110,110]), np.array([10,255,255])
-    rojo2, rojoa2 = np.array([160,110,110]), np.array([179,255,255])
-    mask1 = cv2.inRange(img, rojo1, rojoa1)
-    mask2 = cv2.inRange(img, rojo2, rojoa2)
-    mask0 = cv2.add(mask1, mask2)
-    cv2.imshow("Mascara", mask0)
-    return mask0
-    
-def preparar_track(cluster):
+    ret, mask = cv2.threshold(img[:,:,1],127,255,cv2.THRESH_BINARY)#_INV
+    cv2.imshow("ASD",mask)
+    return mask
+
+def sort(cluster):
+    cluster.sort(key = lambda x: x[7], reverse = True)
+    return cluster
+
+def preparar_track(list_clusters):
+    #|--- Discriminar por el de mayor informacion ---|#
+    list_clusters = sort(list_clusters)
+    cluster = list_clusters[0]
     roi_img = cluster[10]
-    hsv_roi = roi_img[3]
-    cv2.imshow("Track", hsv_roi)
+    hsv_roi = roi_img
     hsv_roi = cv2.cvtColor(hsv_roi, cv2.COLOR_BGR2HSV)
+    #cv2.imshow("Coca", hsv_roi)
     #|--- Make a point window ---|#
     centro = cluster[6]
     w, h = cluster[4], cluster[5]
@@ -326,25 +292,30 @@ while cap.isOpened():
         #|--- ORB --|#
         kp, des = orb_features(img)
         #|--- Meanshift ---|#
+        tcl = time.time()
         cluster = meanshift_cl(kp, des, img)
+        tcl_f = time.time() - tcl
+        print("Tiempo cluster: ", tcl_f)
         #|--- KNN ---|#
+        tknn = time.time()
         result = k_nearest(knn, cluster)
-        if result == 1:
+        tknn_f = (time.time()-tknn)
+        print("Tiempo KNN: ", tknn_f)
+        if result == None or len(result) == 0:
             continue
         #|--- Pre-Track ---|#
-        track_window, roi_hist, term_crit = preparar_track(cluster)
-        control = False
+        track_window, roi_hist, term_crit = preparar_track(result)
+        #control = False
     
-    ant_track = track_window
+    #ant_track = track_window
     track_img, track_window = seguimiento(img.copy(), roi_hist, track_window, term_crit)
     #control = activate(ant_track, track_window)
-    
-    img_final = cv2.cvtColor(track_img, cv2.COLOR_HSV2BGR)
-    cv2.imshow("Imagen final", img_final)
+     
+    cv2.imshow("Imagen final", track_img)
     cv2.waitKey(100)
 print("|--- Fin ---|")
 '''
 -Deja de existir imagen en el entorno.
--Comparacion de hitogramas.
--Clasificado de knn.
+-Distancia
+[minx, maxx, miny, maxy, w, h, centro, size, roi_kp, roi_des, imagen]
 '''
