@@ -1,1 +1,0 @@
-Estas carpetas contienen todas la imagenes que se han capturado del video "Oorion1.avi". Dichas imagenes se encuentran agrupadas y organizadas en funcion de la posicion en la que el meanshift fue obteniendo el numero de conjuntos de caracteristicas en los diferentes frames del video.
