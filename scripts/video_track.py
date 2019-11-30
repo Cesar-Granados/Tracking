@@ -541,8 +541,6 @@ def promedio(list,n):
     return [k,n]
 
 def mascara(imagen,colores):
-    colores[1] = 0
-    print colores
     #|--- Mascara de rojos hsv ---|#
     if colores[1] == 0:
         low, upp = (170,100,100),(180,255,255)

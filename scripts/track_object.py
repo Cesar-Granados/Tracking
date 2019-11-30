@@ -22,11 +22,6 @@ from pybrain.tools.xml.networkreader import NetworkReader
 #|------|#
 import time as t
 #|--------------------------------------------------- Global -------------------------------------------------|#
-#|--- Posicion de la camara ---|#
-ruta_img = "/home/cesar/catkin_ws/src/tracking/src/Fotogramas/video_muestra/Img/"
-ruta_back = "/home/cesar/catkin_ws/src/tracking/src/Fotogramas/video_muestra/Back/"
-ruta_class = "/home/cesar/catkin_ws/src/tracking/src/Fotogramas/video_muestra/Class/"
-fotograma = 0
 count_t = 0
 pose_camara = 0
 point_cloud_all = 0
@@ -63,7 +58,6 @@ def listener():
 def callback(data):
 	global pose_camara
 	pose_camara = data.pose#| Estructura: (x, y, z) |#
-	#print(pose_camera)
 
 
 def callback2(data):
@@ -76,7 +70,6 @@ def callback2(data):
 		list_points.append(i)
 	#|--- asignar a la variable global ---|#
 	point_cloud_all = list_points#| Estructura: (x, y, z) |#
-	#print("|--- pc ---|")
 
 
 def callback3(data):
@@ -88,14 +81,12 @@ def callback3(data):
 		list_keypoints.append(i)
 	#|--- asginar a la variable global ---|#
 	keypoint_cloud = list_keypoints#| Estructura : descriptor de 7 elementos |#
-	#print("|--- kp ---|")
 
 
 def callback4(data, args):
 	global pose_camara
 	global point_cloud_all
 	global fotograma, ruta_img
-	#global keypoint_cloud
 	#|------------------------------|#
 	cloud = []
 	if pose_camara != None:
@@ -124,14 +115,13 @@ def callback4(data, args):
 			for i in cloud:
 				grupo = agrupar(kp,i, grupo, c)
 			c = c + 3
-		#print c
 		#|--- Publicar resultado de analisis ---|#'''
 		org0 = (0,445)		
 		org1 = (0,460)
 		org2 = (0,475)
 		font = cv2.FONT_HERSHEY_PLAIN#cv2.FONT_HERSHEY_TRIPLEX
 		fontscale = 1
-		color = (0,255,255)
+		color = (0,255,0)
 		thikness = 1
 		down = False
 		#|--------------------------------------|#
@@ -142,12 +132,8 @@ def callback4(data, args):
 		string2 = "distancia: "+str(dist)
 		cv2.putText(imagen, string0, org0, font, fontscale, color, thikness, cv2.LINE_AA, down)
 		cv2.putText(imagen, string1, org1, font, fontscale, color, thikness, cv2.LINE_AA, down)
-		cv2.putText(imagen, string2, org2, font, fontscale, color, thikness, cv2.LINE_AA, down)
-		string = ruta_img+"frame_img_"+str(fotograma)+".png"
-		#cv2.imwrite(string, imagen)
-		fotograma = fotograma + 1		
+		cv2.putText(imagen, string2, org2, font, fontscale, color, thikness, cv2.LINE_AA, down)		
 		cv2.imshow("Imagen ORB", imagen)
-		#print string1
 		cv2.waitKey(1)
 		talker(centro)
 
@@ -164,9 +150,7 @@ def talker(posicion):
 		pose.pose.position.x = posicion[0]
 		pose.pose.position.y = posicion[1]
 		pose.pose.position.z = posicion[2]
-		#print posicion
 		pub.publish(pose)
-		#print posicion
 		#rate.sleep()
 #|--------------------------------------------------- Clases ----------------------------------------------------------|#
 def	distancia(p1,p2):	
@@ -238,9 +222,9 @@ class orbslam_point:
     	return 1
 
     def val_t(self):
-    	tx = float(self.pt[0])/float(self.pose_camera[0])# * -1
-    	ty = float(self.pt[1])/float(self.pose_camera[1])# * -1
-    	tz = float(self.pt[2])/float(self.pose_camera[2])# * -1
+    	tx = float(self.pt[0])/float(self.pose_camera[0])
+    	ty = float(self.pt[1])/float(self.pose_camera[1])
+    	tz = float(self.pt[2])/float(self.pose_camera[2])
     	self.t = [tx,ty,tz]
     	return 1
     
@@ -250,10 +234,6 @@ class orbslam_point:
         return 1
     
     def set_distance(self):
-        '''self.camera_distance = np.sqrt(
-        np.power(self.pose_camera[0] - self.pt[0],2) + 
-        np.power(self.pose_camera[1] - self.pt[1],2) + 
-        np.power(self.pose_camera[2] - self.pt[2],2) )'''
 	self.camera_distance = np.sqrt(
         np.power(0 - self.pt[0],2) + 
         np.power(0 - self.pt[1],2) + 
@@ -519,11 +499,7 @@ def preparar_track(list_clusters):
     cluster = list_clusters[0]
     roi_img = cluster[10]
     hsv_roi = roi_img
-    string = ruta_class+"frame_class_"+str(fotograma)+".png"
-    #cv2.imwrite(string, hsv_roi)
-    #cv2.imshow("Coca", hsv_roi)
     hsv_roi = cv2.cvtColor(hsv_roi, cv2.COLOR_BGR2HSV)
-    #cv2.imshow("Coca", hsv_roi)
     #|--- Make a point window ---|#
     centro = cluster[6]
     w, h = cluster[4], cluster[5]
@@ -578,45 +554,36 @@ def promedio(list,n):
     return [k,n]
 
 def mascara(imagen,colores):
-    colores[1] = 0
-    #print colores
     #|--- Mascara de rojos hsv ---|#
     if colores[1] == 0:
         low, upp = (170,100,100),(180,255,255)
         low2, upp2 = (0,100,100),(10,255,255)
         imagen1 = cv2.inRange(imagen,low, upp)
         imagen2 = cv2.inRange(imagen,low2, upp2)
-        #print "rojo"
         return cv2.add(imagen1,imagen2)
     
     if colores[1] == 1:
         low, upp = (11,100,100),(25,255,255)
-        #print "naranja"
         return cv2.inRange(imagen,low, upp)
     
     if colores[1] == 2:
         low, upp = (26,100,100),(35,255,255)
-        #print "amarillo"
         return cv2.inRange(imagen,low, upp)
     
     if colores[1] == 3:
         low, upp = (36,100,100),(70,255,255)
-        #print "verde"
         return cv2.inRange(imagen,low, upp)
     
     if colores[1] == 4:
         low, upp = (71,100,100),(129,255,255)
-        #print "azul"
         return cv2.inRange(imagen,low, upp)
     
     if colores[1] == 5:
         low, upp = (130,100,100),(139,255,255)
-        #print "morado"
         return cv2.inRange(imagen,low, upp)
     
     if colores[1] == 6:
         low, upp = (140,100,100),(168,255,255)
-        #print "rosa"
         return cv2.inRange(imagen,low, upp)
     #|--- Retornar ---|#
 
@@ -627,9 +594,6 @@ def seguimiento(frame, roi_hist, track_window, term_crit ):
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     #|--- Calculate backprojection ---|#
     dst = cv2.calcBackProject([frame],[0,1],roi_hist,[0,179,0,255],1)
-    string = ruta_back+"frame_back_"+str(fotograma)+".png"
-    #cv2.imwrite(string, dst)
-    #cv2.imshow("hist", dst)
     #|--- Calculate a new location ---|#
     ret, track_window = cv2.meanShift(dst, track_window, term_crit)
     #|--- Draw a new region ---|#
@@ -659,7 +623,6 @@ def perdida_objeto(track, track_ant):
 
 #|--------------------------------------------------- Main ---------------------------------------------------|#
 def main(imagen, knn, track_window, roi_hist, term_crit, control, cluster, posicion_camera):
-	#global crono, promedio
 	track_ant = track_window
 	#|--- Mejoramiento de la imagen ---|#
 	img = mejorar_imagen(imagen.copy())
@@ -667,8 +630,6 @@ def main(imagen, knn, track_window, roi_hist, term_crit, control, cluster, posic
 		#|--- ORB --|#
 		#tiempo = t.time()
 		kp, des = orb_features(img.copy())
-		#tiempo = t.time() - tiempo
-		#print tiempo
 		#|--- Meanshift ---|#
 		cluster = meanshift_cl(kp, des, img.copy())
 		result = k_nearest(knn, cluster)
